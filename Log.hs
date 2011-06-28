@@ -18,12 +18,13 @@ import System.Exit
 import System.FilePath
 import System.IO
 import System.Locale
+import System.Posix.Files
 import System.Posix.IO hiding (fdWrite,fdWriteBuf)
 import System.Posix.IO.ByteString
 import System.Posix.Process
 import System.Posix.Signals
 import System.Posix.Types
-import System.Posix.Files
+import Queue
 
 data FileLogSpec = FileLogSpec {
     log_file :: String
@@ -50,35 +51,38 @@ fileCheck spec = do
     dir = takeDirectory file
     exit msg = hPutStrLn stderr msg >> exitFailure
 
-fileInit :: FileLogSpec -> IO (TimeRef,Chan [ByteString])
+fileInit :: FileLogSpec -> IO (TimeRef,QueueRef)
 fileInit spec = do
     fd <- open spec
     buf <- createBuffer (log_buffer_size spec)
     mvar <- newMVar (fd,buf)
-    chan <- newChan
+    qref <- emptyQ
     ref <- timeKeeperInit
     forkIO $ fileFlusher spec mvar
-    forkIO $ fileSerializer chan mvar
+    forkIO $ fileSerializer qref mvar
     let flushHandler = fileFlushHandler mvar
         rotateHandler = fileRotateHandler spec mvar
     installHandler sigTERM flushHandler Nothing
     installHandler sigINT flushHandler Nothing
     installHandler sigHUP rotateHandler Nothing
-    return (ref,chan)
+    return (ref,qref)
 
 ----------------------------------------------------------------
 
-fileSerializer :: Chan [ByteString] -> MVar (Fd,Buffer) -> IO ()
-fileSerializer chan mvar = forever $ do
-    bss <- readChan chan
-    (fd,buf) <- takeMVar mvar
-    mbuf <- copyByteStrings buf bss
-    case mbuf of
-        Nothing -> do
-            buf' <- writeBuffer fd buf
-            Just buf'' <- copyByteStrings buf' bss -- xxx assuming large enough
-            putMVar mvar (fd,buf'')
-        Just buf' -> putMVar mvar (fd,buf')
+fileSerializer :: QueueRef -> MVar (Fd,Buffer) -> IO ()
+fileSerializer qref mvar = forever $ do
+    mbss <- dequeue qref
+    case mbss of
+        Nothing  -> threadDelay 10000
+        Just bss -> do
+            (fd,buf) <- takeMVar mvar
+            mbuf <- copyByteStrings buf bss
+            case mbuf of
+                Nothing -> do
+                    buf' <- writeBuffer fd buf
+                    Just buf'' <- copyByteStrings buf' bss -- xxx
+                    putMVar mvar (fd,buf'')
+                Just buf' -> putMVar mvar (fd,buf')
 
 ----------------------------------------------------------------
 
@@ -139,26 +143,30 @@ fileRotater spec ps = do
 
 ----------------------------------------------------------------
 
-stdoutInit :: IO (TimeRef,Chan [ByteString])
+stdoutInit :: IO (TimeRef,QueueRef)
 stdoutInit = do
-    chan <- newChan
+    qref <- emptyQ
     ref <- timeKeeperInit
     forkIO $ timeKeeper ref
-    forkIO $ stdoutSerializer chan
-    return (ref,chan)
+    forkIO $ stdoutSerializer qref
+    return (ref,qref)
 
-stdoutSerializer :: Chan [ByteString] -> IO ()
-stdoutSerializer chan = forever $ readChan chan >>= \bss -> do
-    fdWrite 1 $ BS.concat bss
-    return ()
+stdoutSerializer :: QueueRef -> IO ()
+stdoutSerializer qref = forever $ do
+    mbss <- dequeue qref
+    case mbss of
+        Nothing  -> threadDelay 10000
+        Just bss -> do
+            fdWrite 1 $ BS.concat bss
+            return ()
 
 ----------------------------------------------------------------
 
-mightyLogger :: (TimeRef,Chan [ByteString]) -> Request -> Status -> Maybe Integer -> IO ()
-mightyLogger (ref,chan) req st msize = do
+mightyLogger :: (TimeRef,QueueRef) -> Request -> Status -> Maybe Integer -> IO ()
+mightyLogger (ref,qref) req st msize = do
     addr <- getPeerAddr (remoteHost req)
     tmstr <- readIORef ref
-    writeChan chan [
+    flip enqueue qref [
         BS.pack addr
       , " - - ["
       , tmstr
