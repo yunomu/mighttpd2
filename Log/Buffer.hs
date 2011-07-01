@@ -1,27 +1,21 @@
-module Buffer where
+module Log.Buffer where
 
 import qualified Data.ByteString as BS
 import Data.ByteString.Internal
 import Data.Word
 import Foreign.ForeignPtr
-import Foreign.Marshal.Alloc
 import Foreign.Ptr
-import System.Posix.Types
-import System.Posix.IO.ByteString
+import System.Posix
 
 data Buffer = Buffer (Ptr Word8)
                      Int -- Buffer space size
                      Int -- Actually used length
 
-createBuffer :: Int -> IO Buffer
-createBuffer len = do
-    ptr <- mallocBytes len
-    return $ Buffer ptr len 0
-
 copyByteString :: Buffer -> ByteString -> IO Buffer
-copyByteString (Buffer dstp dsize dlen) (PS src soff slen) =
+copyByteString (Buffer dstp' dsize dlen) (PS src soff slen) =
     withForeignPtr src $ \srcp' -> do
         let srcp = srcp' `plusPtr` soff
+            dstp = dstp' `plusPtr` dlen
         memcpy dstp srcp (fromIntegral slen)
         return $ Buffer dstp dsize (dlen + slen)
 
@@ -43,3 +37,7 @@ writeBuffer :: Fd -> Buffer -> IO Buffer
 writeBuffer fd (Buffer ptr siz len) = do
     fdWriteBuf fd ptr (fromIntegral len)
     return $ Buffer ptr siz 0
+
+isEmpty :: Buffer -> Bool
+isEmpty (Buffer _ _ 0) = True
+isEmpty _              = False
