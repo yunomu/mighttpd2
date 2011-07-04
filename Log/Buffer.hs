@@ -4,6 +4,7 @@ import qualified Data.ByteString as BS
 import Data.ByteString.Internal
 import Data.Word
 import Foreign.ForeignPtr
+import Foreign.Marshal.Alloc
 import Foreign.Ptr
 
 data Buffer = Buffer (Ptr Word8)
@@ -28,6 +29,11 @@ copyByteStrings (Buffer dstp dsize dlen) ps'
     go (PS p s l:ps) ptr = do
         withForeignPtr p $ \fp -> memcpy ptr (fp `plusPtr` s) (fromIntegral l)
         go ps (ptr `plusPtr` l)
+
+createBuffer :: Int -> IO Buffer
+createBuffer len = do
+    ptr <- mallocBytes len
+    return $ Buffer ptr len 0
 
 clearBuffer :: Buffer -> Buffer
 clearBuffer (Buffer ptr siz _) = Buffer ptr siz 0

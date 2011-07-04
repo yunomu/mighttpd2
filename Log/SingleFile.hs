@@ -2,6 +2,7 @@
 
 module Log.SingleFile where
 
+import Control.Applicative
 import Control.Monad
 import Control.Concurrent
 import Log.Apache
@@ -13,36 +14,58 @@ import Log.Types
 import Network.Wai.Application.Classic
 import System.Exit
 import System.Posix
+import System.Timeout
 
-type MemFile = Buffer
+data FileBuffer = FileBuffer Fd Buffer
 
 singleFileLoggerInit :: FileLogSpec -> IO (Logger, IO ())
 singleFileLoggerInit spec = do
     tmref <- clockInit
     logQ <- queueInit
-    memfile <- openLogFile (log_file spec) (log_file_size spec)
-    mvar <- newMVar memfile
-    let closer = Catch $ singleFileLoggerFinalizer spec mvar
+    fd <- openLogFile (log_file spec)
+    buf <- createBuffer 81920
+    mvar <- newMVar $ FileBuffer fd buf
+    let closer = Catch $ singleFileLoggerFinalizer mvar
     installHandler sigTERM closer Nothing
     installHandler sigINT  closer Nothing
-    return (mightyLogger (tmref,logQ), singleFileLogger spec logQ mvar)
+    forkIO $ singleFileRotator spec mvar
+    return (mightyLogger (tmref,logQ), singleFileLogger logQ mvar)
 
-singleFileLogger :: FileLogSpec -> LogQ -> MVar Buffer -> IO ()
-singleFileLogger spec logQ mvar = forever $ do
-    bss <- dequeue logQ
-    memfile <- takeMVar mvar
-    mbuf' <- copyByteStrings memfile bss
-    case mbuf' of
-        Nothing -> do
-            closeLogFile (log_file spec) memfile
-            rotate (log_file spec) (log_backup_number spec)
-            buf' <- openLogFile (log_file spec) (log_file_size spec)
-            Just buf'' <- copyByteStrings buf' bss
-            putMVar mvar buf''
-        Just buf' -> putMVar mvar buf'
+singleFileLogger :: LogQ -> MVar FileBuffer -> IO ()
+singleFileLogger logQ mvar = forever $ do
+    mbss <- timeout 5000000 $ dequeue logQ
+    FileBuffer fd buf@(Buffer ptr _ off) <- takeMVar mvar
+    case mbss of
+        Nothing ->
+            if off /= 0 then do
+                fdWriteBuf fd ptr (fromIntegral off)
+                let buf' = clearBuffer buf
+                putMVar mvar (FileBuffer fd buf')
+            else
+                putMVar mvar (FileBuffer fd buf)
+        Just bss -> do
+            mbuf' <- copyByteStrings buf bss
+            case mbuf' of
+                Nothing -> do
+                    fdWriteBuf fd ptr (fromIntegral off)
+                    let buf' = clearBuffer buf
+                    Just buf'' <- copyByteStrings buf' bss
+                    putMVar mvar (FileBuffer fd buf'')
+                Just buf' -> putMVar mvar (FileBuffer fd buf')
 
-singleFileLoggerFinalizer :: FileLogSpec -> MVar Buffer -> IO ()
-singleFileLoggerFinalizer spec mvar = do
-    memfile <- takeMVar mvar
-    closeLogFile (log_file spec) memfile
+singleFileLoggerFinalizer :: MVar FileBuffer -> IO ()
+singleFileLoggerFinalizer mvar = do
+    FileBuffer fd buf <- takeMVar mvar
+    closeLogFile fd buf
     exitImmediately ExitSuccess
+
+singleFileRotator :: FileLogSpec -> MVar FileBuffer -> IO ()
+singleFileRotator spec mvar = forever $ do
+    siz <- fileSize <$> getFileStatus (log_file spec)
+    when (fromIntegral siz > log_file_size spec) $ do
+        FileBuffer fd buf <- takeMVar mvar
+        closeLogFile fd buf
+        rotate (log_file spec) (log_backup_number spec)
+        fd' <- openLogFile (log_file spec)
+        putMVar mvar (FileBuffer fd' buf)
+    threadDelay 10000000
