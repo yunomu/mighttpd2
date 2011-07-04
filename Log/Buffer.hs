@@ -6,10 +6,11 @@ import Data.Word
 import Foreign.ForeignPtr
 import Foreign.Marshal.Alloc
 import Foreign.Ptr
+import System.Posix
 
-data Buffer = Buffer (Ptr Word8)
-                     Int -- Buffer space size
-                     Int -- Actually used length
+data Buffer = Buffer !(Ptr Word8)
+                     !Int -- Buffer space size
+                     !Int -- Actually used length
 
 copyByteString :: Buffer -> ByteString -> IO Buffer
 copyByteString (Buffer dstp' dsize dlen) (PS src soff slen) =
@@ -41,3 +42,8 @@ clearBuffer (Buffer ptr siz _) = Buffer ptr siz 0
 isEmpty :: Buffer -> Bool
 isEmpty (Buffer _ _ 0) = True
 isEmpty _              = False
+
+writeBuffer :: Fd -> Buffer -> IO Buffer
+writeBuffer fd (Buffer ptr siz len) = do
+    fdWriteBuf fd ptr (fromIntegral len)
+    return $ Buffer ptr siz 0
