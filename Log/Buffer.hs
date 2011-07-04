@@ -5,7 +5,6 @@ import Data.ByteString.Internal
 import Data.Word
 import Foreign.ForeignPtr
 import Foreign.Ptr
-import System.Posix
 
 data Buffer = Buffer (Ptr Word8)
                      Int -- Buffer space size
@@ -32,11 +31,6 @@ copyByteStrings (Buffer dstp dsize dlen) ps'
 
 clearBuffer :: Buffer -> Buffer
 clearBuffer (Buffer ptr siz _) = Buffer ptr siz 0
-
-writeBuffer :: Fd -> Buffer -> IO Buffer
-writeBuffer fd (Buffer ptr siz len) = do
-    fdWriteBuf fd ptr (fromIntegral len)
-    return $ Buffer ptr siz 0
 
 isEmpty :: Buffer -> Bool
 isEmpty (Buffer _ _ 0) = True

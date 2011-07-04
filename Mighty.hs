@@ -3,7 +3,7 @@
 module Main where
 
 import Config
-import Control.Applicative
+--import Control.Applicative
 import Control.Concurrent
 import Control.Exception (catch, handle, SomeException)
 import Control.Monad
@@ -43,19 +43,19 @@ server opt route = handle handler $ do
     s <- sOpen
     unless debug writePidFile
     setGroupUser opt
-    -- FIXME logging
+    single opt route s logspec
+    {-
     if preN == 1 then do
-        pid <- getProcessID
-        forkIO $ fileRotater logspec [pid]
-        server' opt route s logspec
+        single opt route s logspec
     else
-        prefork opt route s logspec
+        multi opt route s logspec
+-}
   where
     debug = opt_debug_mode opt
     port = opt_port opt
     sOpen = listenOn (PortNumber . fromIntegral $ port)
     pidfile = opt_pid_file opt
-    preN = opt_prefork_process_number opt
+--    preN = opt_prefork_process_number opt
     writePidFile = do
         pid <- getProcessID
         writeFile pidfile $ show pid ++ "\n"
@@ -68,19 +68,24 @@ server opt route = handle handler $ do
         log_file          = opt_log_file opt
       , log_file_size     = fromIntegral $ opt_log_file_size opt
       , log_backup_number = opt_log_backup_number opt
-      , log_buffer_size   = opt_log_buffer_size opt
-      , log_flush_period  = opt_log_flush_period opt * 1000000
       }
 
-server' :: Option -> RouteDB -> Socket -> FileLogSpec -> IO ()
-server' opt route s logspec = do
-    lgr <- if opt_logging opt then do
-               let ini = if debug then stdoutInit else fileInit logspec
-               mightyLogger <$> ini
-           else
-               return (\_ _ _ -> return ())
+----------------------------------------------------------------
+
+single :: Option -> RouteDB -> Socket -> FileLogSpec -> IO ()
+single opt route s logspec = do
+    (lgclt,lgsrv) <-
+        if opt_logging opt then do
+            if debug then
+                singleStdoutLoggerInit
+            else
+                singleFileLoggerInit logspec
+        else
+            return (\_ _ _ -> return (), forever $ threadDelay 1000000)
     getInfo <- fileCacheInit
-    runSettingsSocket setting s $ fileCgiApp (spec lgr getInfo) route
+    let appSpec = spec lgclt getInfo
+    forkIO $ (runSettingsSocket setting s $ fileCgiApp appSpec route)
+    lgsrv
   where
     debug = opt_debug_mode opt
     setting = defaultSettings {
@@ -96,8 +101,11 @@ server' opt route s logspec = do
       , getFileInfo = getInfo
       }
 
-prefork :: Option -> RouteDB -> Socket -> FileLogSpec -> IO ()
-prefork opt route s logspec = do
+----------------------------------------------------------------
+
+{-
+multi :: Option -> RouteDB -> Socket -> FileLogSpec -> IO ()
+multi opt route s logspec = do
     ignoreSigChild
     cids <- replicateM preN $ forkProcess (server' opt route s logspec)
     sClose s
@@ -112,6 +120,7 @@ prefork opt route s logspec = do
         mapM_ terminateChild cids
         exitImmediately ExitSuccess
     terminateChild cid = signalProcess sigTERM cid `catch` ignore
+-}
 
 ----------------------------------------------------------------
 

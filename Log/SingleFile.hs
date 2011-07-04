@@ -2,30 +2,47 @@
 
 module Log.SingleFile where
 
-import Data.IORef
+import Control.Monad
+import Control.Concurrent
+import Log.Apache
 import Log.Buffer
+import Log.Clock
 import Log.File
 import Log.Queue
+import Log.Types
+import Network.Wai.Application.Classic
+import System.Exit
+import System.Posix
 
--- undefined -> LogSpec
+type MemFile = Buffer
 
-singleFileLogger :: LogQ -> Buffer -> IORef Buffer -> IO ()
-singleFileLogger logQ buf ref = do
+singleFileLoggerInit :: FileLogSpec -> IO (Logger, IO ())
+singleFileLoggerInit spec = do
+    tmref <- clockInit
+    logQ <- queueInit
+    memfile <- openLogFile (log_file spec) (log_file_size spec)
+    mvar <- newMVar memfile
+    let closer = Catch $ singleFileLoggerFinalizer spec mvar
+    installHandler sigTERM closer Nothing
+    installHandler sigINT  closer Nothing
+    return (mightyLogger (tmref,logQ), singleFileLogger spec logQ mvar)
+
+singleFileLogger :: FileLogSpec -> LogQ -> MVar Buffer -> IO ()
+singleFileLogger spec logQ mvar = forever $ do
     bss <- dequeue logQ
-    mbuf' <- copyByteStrings buf bss
+    memfile <- takeMVar mvar
+    mbuf' <- copyByteStrings memfile bss
     case mbuf' of
         Nothing -> do
-            closeLogFile undefined buf
-            rotate undefined undefined
-            buf' <- openLogFile undefined undefined
+            closeLogFile (log_file spec) memfile
+            rotate (log_file spec) (log_backup_number spec)
+            buf' <- openLogFile (log_file spec) (log_file_size spec)
             Just buf'' <- copyByteStrings buf' bss
-            atomicModifyIORef ref (\_ -> (buf'',undefined))
-            singleFileLogger logQ buf'' ref
-        Just buf' -> do
-            atomicModifyIORef ref (\_ -> (buf',undefined))
-            singleFileLogger logQ buf' ref
+            putMVar mvar buf''
+        Just buf' -> putMVar mvar buf'
 
-singleFileLoggerFinalizer :: IORef Buffer -> IO ()
-singleFileLoggerFinalizer ref = do
-    buf <- readIORef ref
-    closeLogFile undefined buf
+singleFileLoggerFinalizer :: FileLogSpec -> MVar Buffer -> IO ()
+singleFileLoggerFinalizer spec mvar = do
+    memfile <- takeMVar mvar
+    closeLogFile (log_file spec) memfile
+    exitImmediately ExitSuccess

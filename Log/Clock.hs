@@ -8,23 +8,24 @@ import Data.IORef
 import Data.Time
 import System.Locale
 
-type TimeRef = IORef ByteString
+newtype TimeRef = TimeRef (IORef ByteString)
 
 getDate :: TimeRef -> IO ByteString
-getDate = readIORef
+getDate (TimeRef ref) = readIORef ref
 
 clockInit :: IO (TimeRef)
 clockInit = do
     ref <- timeByteString >>= newIORef
-    forkIO $ clock ref
-    return ref
+    let timeref = TimeRef ref
+    forkIO $ clock timeref
+    return timeref
 
 clock :: TimeRef -> IO ()
-clock ref = do
+clock timeref@(TimeRef ref) = do
     tmstr <- timeByteString
     atomicModifyIORef ref (\_ -> (tmstr, undefined))
     threadDelay 1000000
-    clock ref
+    clock timeref
 
 timeByteString :: IO ByteString
 timeByteString =

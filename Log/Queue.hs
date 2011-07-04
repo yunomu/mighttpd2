@@ -1,12 +1,16 @@
 module Log.Queue where
 
+import Control.Applicative
 import Control.Concurrent
 import Log.Msg
 
-type LogQ = Chan Msg
+newtype LogQ = LogQ (Chan Msg)
 
 enqueue :: LogQ -> Msg -> IO ()
-enqueue = undefined
+enqueue (LogQ chan) msg = writeChan chan msg
 
 dequeue :: LogQ -> IO Msg
-dequeue = undefined
+dequeue (LogQ chan) = readChan chan
+
+queueInit :: IO (LogQ)
+queueInit = LogQ <$> newChan
