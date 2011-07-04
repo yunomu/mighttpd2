@@ -28,36 +28,39 @@ singleFileLoggerInit spec = do
     let closer = Catch $ singleFileLoggerFinalizer mvar
     installHandler sigTERM closer Nothing
     installHandler sigINT  closer Nothing
+    forkIO $ singleFileFlusher mvar
     forkIO $ singleFileRotator spec mvar
     return (mightyLogger (tmref,logQ), singleFileLogger logQ mvar)
 
 singleFileLogger :: LogQ -> MVar FileBuffer -> IO ()
 singleFileLogger logQ mvar = forever $ do
-    mbss <- timeout 5000000 $ dequeue logQ
+    bss <- dequeue logQ
     FileBuffer fd buf@(Buffer ptr _ off) <- takeMVar mvar
-    case mbss of
-        Nothing ->
-            if off /= 0 then do
-                fdWriteBuf fd ptr (fromIntegral off)
-                let buf' = clearBuffer buf
-                putMVar mvar (FileBuffer fd buf')
-            else
-                putMVar mvar (FileBuffer fd buf)
-        Just bss -> do
-            mbuf' <- copyByteStrings buf bss
-            case mbuf' of
-                Nothing -> do
-                    fdWriteBuf fd ptr (fromIntegral off)
-                    let buf' = clearBuffer buf
-                    Just buf'' <- copyByteStrings buf' bss
-                    putMVar mvar (FileBuffer fd buf'')
-                Just buf' -> putMVar mvar (FileBuffer fd buf')
+    mbuf' <- copyByteStrings buf bss
+    case mbuf' of
+        Nothing -> do
+            fdWriteBuf fd ptr (fromIntegral off)
+            let buf' = clearBuffer buf
+            Just buf'' <- copyByteStrings buf' bss
+            putMVar mvar (FileBuffer fd buf'')
+        Just buf' -> putMVar mvar (FileBuffer fd buf')
 
 singleFileLoggerFinalizer :: MVar FileBuffer -> IO ()
 singleFileLoggerFinalizer mvar = do
     FileBuffer fd buf <- takeMVar mvar
     closeLogFile fd buf
     exitImmediately ExitSuccess
+
+singleFileFlusher :: MVar FileBuffer -> IO ()
+singleFileFlusher mvar = forever $ do
+    FileBuffer fd buf@(Buffer ptr _ off) <- takeMVar mvar
+    if off /= 0 then do
+        fdWriteBuf fd ptr (fromIntegral off)
+        let buf' = clearBuffer buf
+        putMVar mvar (FileBuffer fd buf')
+    else
+        putMVar mvar (FileBuffer fd buf)
+    threadDelay 5000000
 
 singleFileRotator :: FileLogSpec -> MVar FileBuffer -> IO ()
 singleFileRotator spec mvar = forever $ do
