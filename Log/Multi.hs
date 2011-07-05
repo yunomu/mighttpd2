@@ -83,4 +83,3 @@ flush share =
     whdl = share_whdl share
     rhdl = share_rhdl share
     len = usedLength buf
-
