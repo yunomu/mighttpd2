@@ -109,13 +109,17 @@ multi opt route s logspec = do
     sClose s
     initHandler sigTERM $ terminateHandler cids
     initHandler sigINT  $ terminateHandler cids
-    if debug then do
-        mapM_ (forkIO . multiStdoutWriter) (tail share2)
-        multiStdoutWriter (head share2)
+    if opt_logging opt then do
+        if debug then do
+            mapM_ (forkIO . multiStdoutWriter) (tail share2)
+            multiStdoutWriter (head share2)
+        else do
+            fd <- openLogFile (log_file logspec)
+            mapM_ (forkIO . multiWriter fd) (tail share2)
+            multiWriter fd (head share2)
     else do
-        fd <- openLogFile (log_file logspec)
-        mapM_ (forkIO . multiWriter fd) (tail share2)
-        multiWriter fd (head share2)
+        blockSignals reservedSignals
+        awaitSignal Nothing >> yield
   where
     debug = opt_debug_mode opt
     preN = opt_prefork_process_number opt
