@@ -17,4 +17,3 @@ singleStdoutLogger :: LogQ -> IO ()
 singleStdoutLogger logQ = forever $ do
     bss <- dequeue logQ
     BS.putStr $ BS.concat bss
-

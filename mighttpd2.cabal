@@ -35,6 +35,9 @@ Executable mighty
                         Log.SharedMemory
                         Log.SingleFile
                         Log.SingleStdout
+                        Log.Multi
+                        Log.MultiFile
+                        Log.MultiStdout
                         Log.Types
                         Mighty
                         Parser

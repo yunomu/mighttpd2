@@ -36,12 +36,17 @@ createBuffer len = do
     ptr <- mallocBytes len
     return $ Buffer ptr len 0
 
+toBuffer :: Int -> Ptr Word8 -> Buffer
+toBuffer len ptr = Buffer ptr len 0
+
 clearBuffer :: Buffer -> Buffer
 clearBuffer (Buffer ptr siz _) = Buffer ptr siz 0
 
 isEmpty :: Buffer -> Bool
-isEmpty (Buffer _ _ 0) = True
-isEmpty _              = False
+isEmpty buf = usedLength buf == 0
+
+usedLength :: Buffer -> Int
+usedLength (Buffer _ _ x) = x
 
 writeBuffer :: Fd -> Buffer -> IO Buffer
 writeBuffer fd (Buffer ptr siz len) = do

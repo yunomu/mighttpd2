@@ -43,19 +43,16 @@ server opt route = handle handler $ do
     s <- sOpen
     unless debug writePidFile
     setGroupUser opt
-    single opt route s logspec
-    {-
     if preN == 1 then do
         single opt route s logspec
     else
         multi opt route s logspec
--}
   where
     debug = opt_debug_mode opt
     port = opt_port opt
     sOpen = listenOn (PortNumber . fromIntegral $ port)
     pidfile = opt_pid_file opt
---    preN = opt_prefork_process_number opt
+    preN = opt_prefork_process_number opt
     writePidFile = do
         pid <- getProcessID
         writeFile pidfile $ show pid ++ "\n"
@@ -103,16 +100,24 @@ single opt route s logspec = do
 
 ----------------------------------------------------------------
 
-{-
+
 multi :: Option -> RouteDB -> Socket -> FileLogSpec -> IO ()
 multi opt route s logspec = do
     ignoreSigChild
-    cids <- replicateM preN $ forkProcess (server' opt route s logspec)
+    (share1,share2) <- prepareShare preN
+    cids <- mapM (forkProcess . multi' opt route s) share1
     sClose s
     initHandler sigTERM $ terminateHandler cids
     initHandler sigINT  $ terminateHandler cids
-    fileRotater logspec cids
+    if debug then do
+        mapM_ (forkIO . multiStdoutWriter) (tail share2)
+        multiStdoutWriter (head share2)
+    else do
+        fd <- openLogFile (log_file logspec)
+        mapM_ (forkIO . multiWriter fd) (tail share2)
+        multiWriter fd (head share2)
   where
+    debug = opt_debug_mode opt
     preN = opt_prefork_process_number opt
     initHandler sig func = installHandler sig func Nothing
     ignoreSigChild = initHandler sigCHLD Ignore
@@ -120,7 +125,31 @@ multi opt route s logspec = do
         mapM_ terminateChild cids
         exitImmediately ExitSuccess
     terminateChild cid = signalProcess sigTERM cid `catch` ignore
--}
+
+multi' :: Option -> RouteDB -> Socket -> Share -> IO ()
+multi' opt route s share = do
+    (lgclt,lgsrv) <-
+        if opt_logging opt then do
+            multiLoggerInit share
+        else
+            return (\_ _ _ -> return (), forever $ threadDelay 1000000)
+    getInfo <- fileCacheInit
+    let appSpec = spec lgclt getInfo
+    forkIO $ (runSettingsSocket setting s $ fileCgiApp appSpec route)
+    lgsrv
+  where
+    setting = defaultSettings {
+        settingsPort        = opt_port opt
+      , settingsOnException = ignore
+      , settingsTimeout     = opt_connection_timeout opt
+      }
+    spec lgr getInfo = AppSpec {
+        softwareName = BS.pack $ opt_server_name opt
+      , indexFile = BS.pack $ opt_index_file opt
+      , isHTML = \x -> ".html" `BS.isSuffixOf` x || ".htm" `BS.isSuffixOf` x
+      , logger = lgr
+      , getFileInfo = getInfo
+      }
 
 ----------------------------------------------------------------
 
