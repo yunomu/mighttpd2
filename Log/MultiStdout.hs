@@ -9,7 +9,7 @@ import System.Posix
 multiWriter :: Fd -> Share -> IO ()
 multiWriter fd share = forever $ do
     xs <- recvControl rhdl
-    let len = read (init xs) :: ByteCount
+    let len = read xs :: ByteCount
     fdWriteBuf fd ptr len
     sendControl whdl "done\n"
   where
