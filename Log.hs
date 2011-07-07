@@ -17,6 +17,9 @@ import System.Locale
 import System.Posix.IO hiding (fdWrite,fdWriteBuf)
 import System.Posix.IO.ByteString
 import System.Posix.Types
+import Foreign.Ptr
+import qualified Data.ByteString.Unsafe as BSU
+import Foreign.C.Error (eAGAIN, eINTR)
 
 data FileLogSpec = FileLogSpec {
     log_file :: String
@@ -92,6 +95,22 @@ apacheLogger timref fdref req st msize = do
       , "\"\n"
       ]
     return ()
+
+tryFdWrite :: Fd -> ByteString -> IO ()
+tryFdWrite fd s = BSU.unsafeUseAsCStringLen s $ \(buf,len) -> do
+    let p = castPtr buf
+        l = fromIntegral len
+    nonBlockWrite p l
+  where
+    nonBlockWrite p l = do
+        res <- tryFdWriteBuf fd p l
+        case res of
+            Left x -> if x `elem` [eAGAIN, eINTR] then do
+                          threadWaitWrite fd
+                          nonBlockWrite p l
+                      else
+                          return ()
+            _ -> return ()
 
 ----------------------------------------------------------------
 
