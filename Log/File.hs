@@ -18,7 +18,10 @@ rotate path n = mapM_ move srcdsts
 
 openLogFile :: FilePath -> IO Fd
 openLogFile file =
-    openFd file WriteOnly (Just 0o644) defaultFileFlags { append = True }
+    openFd file WriteOnly (Just 0o644) defaultFileFlags {
+        append = True
+      , nonBlock = True
+      }
 
 closeLogFile :: Fd -> Buffer -> IO ()
 closeLogFile fd (Buffer ptr _ off) = do
