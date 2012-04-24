@@ -19,6 +19,7 @@ defaultOption = Option {
   , opt_pid_file = "/var/run/mighty.pid"
   , opt_logging = True
   , opt_log_file = "/var/log/mighty"
+  , opt_error_log_file = "/tmp/mighty_error"
   , opt_log_file_size = 16777216
   , opt_log_backup_number = 10
   , opt_index_file = "index.html"
@@ -37,6 +38,7 @@ data Option = Option {
   , opt_pid_file :: !String
   , opt_logging :: !Bool
   , opt_log_file :: !String
+  , opt_error_log_file :: !String
   , opt_log_file_size :: !Int
   , opt_log_backup_number :: !Int
   , opt_index_file :: !String
@@ -63,6 +65,7 @@ makeOpt def conf = Option {
   , opt_pid_file           = get "Pid_File" opt_pid_file
   , opt_logging            = get "Logging" opt_logging
   , opt_log_file           = get "Log_File" opt_log_file
+  , opt_error_log_file     = get "Error_Log_File" opt_error_log_file
   , opt_log_file_size      = get "Log_File_Size" opt_log_file_size
   , opt_log_backup_number  = get "Log_Backup_Number" opt_log_backup_number
   , opt_index_file         = get "Index_File" opt_index_file

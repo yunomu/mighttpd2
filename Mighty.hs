@@ -27,8 +27,8 @@ import System.IO
 import System.Posix
 import Types
 
-errorFile :: FilePath
-errorFile = "/tmp/mighty_error"
+errorFile :: Option -> FilePath
+errorFile opt = opt_error_log_file opt
 
 main :: IO ()
 main = do
@@ -37,7 +37,7 @@ main = do
         server opt route
       else do
         putStrLn "Detaching this terminal..."
-        putStrLn $ "If any, errors can be found in \"" ++ errorFile ++ "\""
+        putStrLn $ "If any, errors can be found in \"" ++ (errorFile opt) ++ "\""
         hFlush stdout
         daemonize $ server opt route
   where
@@ -96,7 +96,7 @@ server opt route = handle handler $ do
     handler :: SomeException -> IO ()
     handler e
       | debug = hPrint stderr e
-      | otherwise = writeFile errorFile (show e)
+      | otherwise = writeFile (errorFile opt) (show e)
     logspec = FileLogSpec {
         log_file          = opt_log_file opt
       , log_file_size     = fromIntegral $ opt_log_file_size opt
