@@ -9,6 +9,7 @@ import Control.Exception (catch, handle, SomeException)
 import Control.Monad
 import qualified Data.ByteString.Char8 as BS
 import Data.Conduit.Network
+import Data.Time
 import FileCGIApp
 import FileCache
 import Network
@@ -96,7 +97,9 @@ server opt route = handle handler $ do
     handler :: SomeException -> IO ()
     handler e
       | debug = hPrint stderr e
-      | otherwise = writeFile (errorFile opt) (show e)
+      | otherwise = do
+        timestamp <- show <$> getZonedTime
+        writeFile (errorFile opt) (timestamp ++ ": " ++ show e)
     logspec = FileLogSpec {
         log_file          = opt_log_file opt
       , log_file_size     = fromIntegral $ opt_log_file_size opt
